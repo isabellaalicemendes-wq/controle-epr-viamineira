@@ -1,0 +1,14 @@
+streamlit>=1.36
+pandas>=2.0
+numpy>=1.24
+Pillow>=10.0
+openpyxl>=3.1
+fpdf2>=2.7
+
+# --------------------------------------------------------------------
+# Bibliotecas OPCIONAIS para ativar o OCR real (a app já funciona em
+# modo de SIMULAÇÃO sem elas). Descomente UMA das duas abaixo e siga
+# as instruções na função process_ocr_image() dentro de app.py.
+# --------------------------------------------------------------------
+# pytesseract>=0.3.10      # exige também instalar o binário Tesseract-OCR no SO
+# easyocr>=1.7             # não exige binário externo, porém é mais pesado (usa torch)
