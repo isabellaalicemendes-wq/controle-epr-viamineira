@@ -46,7 +46,7 @@ META_MINIMA_KM = 380.0    # 380 <= KM < 400      -> META ACEITÁVEL   | < 380 ->
 # Motor de OCR usado por padrão. Opções: "pytesseract" (recomendado - mais leve,
 # exige o binário Tesseract-OCR instalado no sistema) ou "easyocr" (não exige
 # binário externo, porém baixa um modelo na primeira execução e é mais pesado).
-MOTOR_OCR = "easyocr"
+MOTOR_OCR = "pytesseract"
 COLUNAS_PLANTAO = [
     "data_plantao", "turno", "colaborador", "vtr", "km_rodados",
     "status_meta", "tempo_parado_total", "registrado_em",
