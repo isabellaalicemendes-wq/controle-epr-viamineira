@@ -4,18 +4,7 @@
  SISTEMA DE CONTROLE DE METAS DE QUILOMETRAGEM - MOTORISTAS  (v3)
  EPR VIA MINEIRA
 =================================================================================
-Aplicação Streamlit multipágina para lançamento de plantões, com:
-  - OCR REAL (pytesseract por padrão, easyocr como alternativa) lendo a
-    tabela inteira do print do CCO (VTR, Colaborador, KM Rodados);
-  - Correção em lote dos dados extraídos via st.data_editor;
-  - Cálculo automático de meta (Ideal / Aceitável / Não Batida);
-  - Empilhamento de múltiplas ocorrências por motorista, com soma automática
-    do tempo parado;
-  - Histórico consultável agrupado por Data + Turno e exportação para Excel
-    (openpyxl) no layout do reporte real.
-
-Pronta para rodar localmente (streamlit run app.py) ou no Streamlit Cloud
-(ver packages.txt para a dependência de sistema do Tesseract-OCR).
+Aplicação Streamlit multipágina para lançamento de plantões.
 =================================================================================
 """
 
@@ -250,13 +239,6 @@ def inject_custom_css():
             font-size: 0.88rem;
             border-bottom: 1px solid #EDEFF2;
             color: var(--epr-texto);
-        }
-        .epr-row-ocorrencia td {
-            background-color: #FAFBFC;
-            color: #5A6B7B;
-            font-size: 0.8rem;
-            font-style: italic;
-            padding-left: 2.3rem;
         }
 
         /* ===================== RODAPÉ ===================== */
@@ -595,22 +577,20 @@ def export_consolidated_excel(df_plantao: pd.DataFrame, df_ocorrencias: pd.DataF
     fonte_header = Font(bold=True, color=azul, size=10)
     fonte_normal = Font(size=10)
     fonte_status = Font(bold=True, size=10)
-    fonte_oc = Font(size=9, italic=True, color="5A6B7B")
 
     fill_titulo = PatternFill("solid", fgColor=azul)
     fill_header = PatternFill("solid", fgColor=cinza_claro)
     fill_verde = PatternFill("solid", fgColor=verde_claro)
     fill_laranja = PatternFill("solid", fgColor=laranja_claro)
     fill_vermelho = PatternFill("solid", fgColor=vermelho_claro)
-    fill_oc = PatternFill("solid", fgColor="FAFBFC")
 
     # Ajuste das larguras das colunas
-    for idx, largura in enumerate([12, 28, 14, 14, 18, 18], start=1):
+    for idx, largura in enumerate([12, 28, 14, 14, 18, 20, 18], start=1):
         ws.column_dimensions[get_column_letter(idx)].width = largura
 
     rotulos_status = {"BATIDA": "META BATIDA", "ACEITAVEL": "META ACEITÁVEL", "NAO_BATIDA": "META NÃO BATIDA"}
     fills_status = {"BATIDA": fill_verde, "ACEITAVEL": fill_laranja, "NAO_BATIDA": fill_vermelho}
-    colunas_cabecalho = ["Base", "Colaborador", "VTR", "KM Rodados", "Status da Meta", "Tempo Parado Total"]
+    colunas_cabecalho = ["Base", "Colaborador", "VTR", "KM Rodados", "Status da Meta", "Nº Ocorrência(s)", "Tempo Parado Total"]
     ordem_turno = {"DIA": 0, "NOITE": 1}
 
     df_plantao = df_plantao.copy()
@@ -632,7 +612,7 @@ def export_consolidated_excel(df_plantao: pd.DataFrame, df_ocorrencias: pd.DataF
         except ValueError:
             titulo_bloco = f"{data_str} · TURNO {turno}"
 
-        ws.merge_cells(start_row=linha_atual, start_column=1, end_row=linha_atual, end_column=6)
+        ws.merge_cells(start_row=linha_atual, start_column=1, end_row=linha_atual, end_column=7)
         celula_titulo = ws.cell(row=linha_atual, column=1, value=titulo_bloco)
         celula_titulo.font = fonte_titulo
         celula_titulo.fill = fill_titulo
@@ -649,12 +629,22 @@ def export_consolidated_excel(df_plantao: pd.DataFrame, df_ocorrencias: pd.DataF
 
         for _, linha in bloco.iterrows():
             status_code = linha["status_meta"]
+            
+            # Pega todas as ocorrências deste motorista para colocar na mesma linha
+            ocorrencias_motorista = df_ocorrencias[
+                (df_ocorrencias["data_plantao"] == data_str)
+                & (df_ocorrencias["turno"] == turno)
+                & (df_ocorrencias["colaborador"] == linha["colaborador"])
+            ]
+            numeros_oc = ", ".join(ocorrencias_motorista["numero_ocorrencia"].tolist()) if not ocorrencias_motorista.empty else "-"
+
             valores = [
                 linha.get("base", "-"), 
                 linha["colaborador"], 
                 linha["vtr"],
                 f"{float(linha['km_rodados']):.1f} km",
                 rotulos_status.get(status_code, status_code),
+                numeros_oc,
                 linha.get("tempo_parado_total", "") or "-",
             ]
             for col_idx, valor in enumerate(valores, start=1):
@@ -663,20 +653,6 @@ def export_consolidated_excel(df_plantao: pd.DataFrame, df_ocorrencias: pd.DataF
                 if col_idx == 5:
                     celula.fill = fills_status.get(status_code, fill_header)
             linha_atual += 1
-
-            if status_code != "BATIDA":
-                ocorrencias_motorista = df_ocorrencias[
-                    (df_ocorrencias["data_plantao"] == data_str)
-                    & (df_ocorrencias["turno"] == turno)
-                    & (df_ocorrencias["colaborador"] == linha["colaborador"])
-                ]
-                for _, oc in ocorrencias_motorista.iterrows():
-                    texto_oc = f"     ↳ Ocorrência nº {oc['numero_ocorrencia']} — Tempo parado: {oc['tempo_parado']}"
-                    ws.merge_cells(start_row=linha_atual, start_column=1, end_row=linha_atual, end_column=6)
-                    celula_oc = ws.cell(row=linha_atual, column=1, value=texto_oc)
-                    celula_oc.font = fonte_oc
-                    celula_oc.fill = fill_oc
-                    linha_atual += 1
 
         linha_atual += 1  # linha em branco entre blocos
 
@@ -1002,6 +978,17 @@ def _renderizar_bloco_historico(data_str: str, turno: str, bloco_df: pd.DataFram
         status_code = linha["status_meta"]
         status_label, classe_tag = rotulos_status.get(status_code, (status_code, ""))
 
+        # Pega as ocorrências e junta os números
+        ocorrencias_motorista = df_ocorrencias[
+            (df_ocorrencias["data_plantao"] == data_str)
+            & (df_ocorrencias["turno"] == turno)
+            & (df_ocorrencias["colaborador"] == linha["colaborador"])
+        ]
+        
+        numeros_oc = ", ".join(ocorrencias_motorista["numero_ocorrencia"].tolist())
+        if not numeros_oc:
+            numeros_oc = "-"
+
         linhas_html += f"""
         <tr>
             <td>{linha.get('base', '')}</td>
@@ -1009,21 +996,10 @@ def _renderizar_bloco_historico(data_str: str, turno: str, bloco_df: pd.DataFram
             <td>{linha.get('vtr', '') or '-'}</td>
             <td>{float(linha['km_rodados']):.1f} km</td>
             <td><span class="epr-tag {classe_tag}">{status_label}</span></td>
+            <td>{numeros_oc}</td>
             <td>{linha.get('tempo_parado_total', '') or '-'}</td>
         </tr>
         """
-        if status_code != "BATIDA":
-            ocorrencias_motorista = df_ocorrencias[
-                (df_ocorrencias["data_plantao"] == data_str)
-                & (df_ocorrencias["turno"] == turno)
-                & (df_ocorrencias["colaborador"] == linha["colaborador"])
-            ]
-            for _, oc in ocorrencias_motorista.iterrows():
-                linhas_html += f"""
-                <tr class="epr-row-ocorrencia">
-                    <td colspan="6">↳ Ocorrência nº {oc['numero_ocorrencia']} — Tempo parado: {oc['tempo_parado']}</td>
-                </tr>
-                """
 
     st.markdown(
         f"""
@@ -1033,7 +1009,7 @@ def _renderizar_bloco_historico(data_str: str, turno: str, bloco_df: pd.DataFram
                 <thead>
                     <tr>
                         <th>Base</th><th>Colaborador</th><th>VTR</th>
-                        <th>KM Rodados</th><th>Status</th><th>Tempo Parado Total</th>
+                        <th>KM Rodados</th><th>Status</th><th>Nº Ocorrência(s)</th><th>Tempo Parado Total</th>
                     </tr>
                 </thead>
                 <tbody>
