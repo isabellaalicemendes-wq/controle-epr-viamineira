@@ -43,13 +43,10 @@ ARQUIVO_OCORRENCIAS = "registros_ocorrencias.csv"   # 1 linha = 1 ocorrência (N
 META_IDEAL_KM = 400.0     # KM Rodados >= 400   -> META BATIDA
 META_MINIMA_KM = 380.0    # 380 <= KM < 400      -> META ACEITÁVEL   | < 380 -> NÃO BATIDA
 
-# Motor de OCR usado por padrão. Opções: "pytesseract" (recomendado - mais leve,
-# exige o binário Tesseract-OCR instalado no sistema) ou "easyocr" (não exige
-# binário externo, porém baixa um modelo na primeira execução e é mais pesado).
 MOTOR_OCR = "pytesseract"
 
 COLUNAS_PLANTAO = [
-    "data_plantao", "turno", "colaborador", "vtr", "km_rodados",
+    "data_plantao", "turno", "base", "colaborador", "vtr", "km_rodados",
     "status_meta", "tempo_parado_total", "registrado_em",
 ]
 COLUNAS_OCORRENCIAS = [
@@ -394,6 +391,7 @@ def salvar_plantao_atual(data_plantao_iso: str, turno: str, lista_motoristas: li
         linhas_plantao.append({
             "data_plantao": data_plantao_iso,
             "turno": turno,
+            "base": str(motorista.get("base", "")).strip() or "-",
             "colaborador": str(motorista.get("colaborador", "")).strip(),
             "vtr": str(motorista.get("vtr", "")).strip() or "-",
             "km_rodados": round(float(motorista.get("km_rodados") or 0), 1),
@@ -545,6 +543,7 @@ def interpretar_linha_tabela(texto_linha: str):
         return None
 
     return {
+        "base": "",
         "colaborador": colaborador.title(),
         "vtr": vtr,
         "km_rodados": round(km_rodados, 1),
@@ -556,11 +555,6 @@ def process_ocr_multi(image: Image.Image) -> list:
     Lê de verdade a tabela enviada pelo CCO (print de WhatsApp) e devolve a
     lista de motoristas identificados (colaborador, vtr, km_rodados) — uma
     entrada por linha da tabela.
-
-    Usa o motor definido em MOTOR_OCR ("pytesseract" por padrão, ou
-    "easyocr"). Como o reconhecimento de texto em fotos de tela está sujeito
-    a ruído, o resultado deve sempre ser revisado pelo usuário na tabela
-    editável exibida na tela (st.data_editor) antes de confirmar.
     """
     imagem_processada = preprocessar_imagem_para_ocr(image)
 
@@ -610,12 +604,13 @@ def export_consolidated_excel(df_plantao: pd.DataFrame, df_ocorrencias: pd.DataF
     fill_vermelho = PatternFill("solid", fgColor=vermelho_claro)
     fill_oc = PatternFill("solid", fgColor="FAFBFC")
 
-    for idx, largura in enumerate([28, 14, 14, 18, 18], start=1):
+    # Ajuste das larguras das colunas
+    for idx, largura in enumerate([12, 28, 14, 14, 18, 18], start=1):
         ws.column_dimensions[get_column_letter(idx)].width = largura
 
     rotulos_status = {"BATIDA": "META BATIDA", "ACEITAVEL": "META ACEITÁVEL", "NAO_BATIDA": "META NÃO BATIDA"}
     fills_status = {"BATIDA": fill_verde, "ACEITAVEL": fill_laranja, "NAO_BATIDA": fill_vermelho}
-    colunas_cabecalho = ["Colaborador", "VTR", "KM Rodados", "Status da Meta", "Tempo Parado Total"]
+    colunas_cabecalho = ["Base", "Colaborador", "VTR", "KM Rodados", "Status da Meta", "Tempo Parado Total"]
     ordem_turno = {"DIA": 0, "NOITE": 1}
 
     df_plantao = df_plantao.copy()
@@ -637,7 +632,7 @@ def export_consolidated_excel(df_plantao: pd.DataFrame, df_ocorrencias: pd.DataF
         except ValueError:
             titulo_bloco = f"{data_str} · TURNO {turno}"
 
-        ws.merge_cells(start_row=linha_atual, start_column=1, end_row=linha_atual, end_column=5)
+        ws.merge_cells(start_row=linha_atual, start_column=1, end_row=linha_atual, end_column=6)
         celula_titulo = ws.cell(row=linha_atual, column=1, value=titulo_bloco)
         celula_titulo.font = fonte_titulo
         celula_titulo.fill = fill_titulo
@@ -655,15 +650,17 @@ def export_consolidated_excel(df_plantao: pd.DataFrame, df_ocorrencias: pd.DataF
         for _, linha in bloco.iterrows():
             status_code = linha["status_meta"]
             valores = [
-                linha["colaborador"], linha["vtr"],
+                linha.get("base", "-"), 
+                linha["colaborador"], 
+                linha["vtr"],
                 f"{float(linha['km_rodados']):.1f} km",
                 rotulos_status.get(status_code, status_code),
                 linha.get("tempo_parado_total", "") or "-",
             ]
             for col_idx, valor in enumerate(valores, start=1):
                 celula = ws.cell(row=linha_atual, column=col_idx, value=valor)
-                celula.font = fonte_status if col_idx == 4 else fonte_normal
-                if col_idx == 4:
+                celula.font = fonte_status if col_idx == 5 else fonte_normal
+                if col_idx == 5:
                     celula.fill = fills_status.get(status_code, fill_header)
             linha_atual += 1
 
@@ -675,7 +672,7 @@ def export_consolidated_excel(df_plantao: pd.DataFrame, df_ocorrencias: pd.DataF
                 ]
                 for _, oc in ocorrencias_motorista.iterrows():
                     texto_oc = f"     ↳ Ocorrência nº {oc['numero_ocorrencia']} — Tempo parado: {oc['tempo_parado']}"
-                    ws.merge_cells(start_row=linha_atual, start_column=1, end_row=linha_atual, end_column=5)
+                    ws.merge_cells(start_row=linha_atual, start_column=1, end_row=linha_atual, end_column=6)
                     celula_oc = ws.cell(row=linha_atual, column=1, value=texto_oc)
                     celula_oc.font = fonte_oc
                     celula_oc.fill = fill_oc
@@ -709,6 +706,7 @@ def _sincronizar_confirmacao():
             continue
         chave = nome.lower()
         nova_lista.append({
+            "base": str(linha.get("base", "")).strip(),
             "colaborador": nome,
             "vtr": str(linha.get("vtr", "")).strip() or "-",
             "km_rodados": round(float(linha.get("km_rodados") or 0), 1),
@@ -744,7 +742,7 @@ def _renderizar_card_motorista(i: int, motorista: dict):
     with st.container(border=True):
         col_nome, col_vtr, col_km, col_rm = st.columns([3, 1.3, 1.3, 0.7])
         with col_nome:
-            st.markdown(f"**{motorista['colaborador']}**")
+            st.markdown(f"**{motorista['colaborador']}** | {motorista.get('base', '-')}")
         with col_vtr:
             st.caption(f"VTR: {motorista['vtr']}")
         with col_km:
@@ -848,7 +846,7 @@ def pagina_inicio():
             {"BATIDA": "✅ Batida", "ACEITAVEL": "🟠 Aceitável", "NAO_BATIDA": "❌ Não Batida"}
         )
         st.dataframe(
-            df_recentes[["data_plantao", "turno", "colaborador", "vtr", "km_rodados", "status_meta"]],
+            df_recentes[["data_plantao", "turno", "base", "colaborador", "vtr", "km_rodados", "status_meta"]],
             use_container_width=True, hide_index=True,
         )
 
@@ -873,9 +871,8 @@ def pagina_lancar_plantao():
     with st.container(border=True):
         st.markdown("### 📥 Importar Tabela do CCO (OCR)")
         st.caption(
-            "Arraste o print da tabela enviada pelo CCO no WhatsApp (colunas VTR, "
-            "Colaborador e KM Rodados). Pode enviar mais de um print — as novas "
-            "linhas serão somadas à tabela abaixo."
+            "Arraste o print da tabela enviada pelo CCO no WhatsApp. Pode enviar mais de um print "
+            "— as novas linhas serão somadas à tabela abaixo."
         )
 
         col_up, col_prev = st.columns([1, 1])
@@ -914,28 +911,21 @@ def pagina_lancar_plantao():
         )
 
         st.markdown("##### Tabela extraída — corrija o que for necessário")
-        df_base = (
-            pd.DataFrame(st.session_state.linhas_ocr)
-            if st.session_state.linhas_ocr
-            else pd.DataFrame(columns=["colaborador", "vtr", "km_rodados"])
-        )
-        st.markdown("##### Tabela extraída — corrija o que for necessário")
         
-        # Cria uma tabela vazia com 5 linhas caso o OCR falhe ou venha em branco
         if not st.session_state.linhas_ocr:
-            linhas_iniciais = [{"colaborador": "", "vtr": "", "km_rodados": 0.0} for _ in range(5)]
+            linhas_iniciais = [{"base": "", "colaborador": "", "vtr": "", "km_rodados": 0.0} for _ in range(5)]
         else:
             linhas_iniciais = st.session_state.linhas_ocr
             
         df_base = pd.DataFrame(linhas_iniciais)
         
-        # O data_editor roda livremente sem bugar a digitação
         df_editado = st.data_editor(
             df_base,
             num_rows="dynamic",
             use_container_width=True,
             hide_index=True,
             column_config={
+                "base": st.column_config.TextColumn("Base (BSO)"),
                 "colaborador": st.column_config.TextColumn("Colaborador", required=True),
                 "vtr": st.column_config.TextColumn("VTR"),
                 "km_rodados": st.column_config.NumberColumn(
@@ -944,9 +934,8 @@ def pagina_lancar_plantao():
             },
         )
 
-        # O segredo: A atualização do sistema SÓ acontece ao clicar no botão
         if st.button("✅ Confirmar Lista para Validação de Metas", type="primary", use_container_width=True):
-            st.session_state.linhas_ocr = df_editado.fillna({"colaborador": "", "vtr": "", "km_rodados": 0.0}).to_dict("records")
+            st.session_state.linhas_ocr = df_editado.fillna({"base": "", "colaborador": "", "vtr": "", "km_rodados": 0.0}).to_dict("records")
             _sincronizar_confirmacao()
             st.rerun()
 
@@ -1015,6 +1004,7 @@ def _renderizar_bloco_historico(data_str: str, turno: str, bloco_df: pd.DataFram
 
         linhas_html += f"""
         <tr>
+            <td>{linha.get('base', '')}</td>
             <td>{linha['colaborador']}</td>
             <td>{linha.get('vtr', '') or '-'}</td>
             <td>{float(linha['km_rodados']):.1f} km</td>
@@ -1031,7 +1021,7 @@ def _renderizar_bloco_historico(data_str: str, turno: str, bloco_df: pd.DataFram
             for _, oc in ocorrencias_motorista.iterrows():
                 linhas_html += f"""
                 <tr class="epr-row-ocorrencia">
-                    <td colspan="5">↳ Ocorrência nº {oc['numero_ocorrencia']} — Tempo parado: {oc['tempo_parado']}</td>
+                    <td colspan="6">↳ Ocorrência nº {oc['numero_ocorrencia']} — Tempo parado: {oc['tempo_parado']}</td>
                 </tr>
                 """
 
@@ -1042,7 +1032,7 @@ def _renderizar_bloco_historico(data_str: str, turno: str, bloco_df: pd.DataFram
             <table class="epr-table">
                 <thead>
                     <tr>
-                        <th>Colaborador</th><th>VTR</th>
+                        <th>Base</th><th>Colaborador</th><th>VTR</th>
                         <th>KM Rodados</th><th>Status</th><th>Tempo Parado Total</th>
                     </tr>
                 </thead>
