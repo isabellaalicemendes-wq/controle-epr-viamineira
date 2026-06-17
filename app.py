@@ -5,17 +5,36 @@
  EPR VIA MINEIRA
 =================================================================================
 Aplicação Streamlit multipágina para lançamento de plantões, com:
-  - OCR REAL (pytesseract por padrão, easyocr como alternativa) lendo a
-    tabela inteira do print do CCO (VTR, Colaborador, KM Rodados);
-  - Correção em lote dos dados extraídos via st.data_editor;
-  - Cálculo automático de meta (Ideal / Aceitável / Não Batida);
-  - Empilhamento de múltiplas ocorrências por motorista, com soma automática
-    do tempo parado;
-  - Histórico consultável agrupado por Data + Turno e exportação para Excel
-    (openpyxl) no layout do reporte real.
+  st.markdown("##### Tabela extraída — corrija o que for necessário")
+        
+        # Cria uma tabela vazia com 5 linhas caso o OCR falhe ou venha em branco
+        if not st.session_state.linhas_ocr:
+            linhas_iniciais = [{"colaborador": "", "vtr": "", "km_rodados": 0.0} for _ in range(5)]
+        else:
+            linhas_iniciais = st.session_state.linhas_ocr
+            
+        df_base = pd.DataFrame(linhas_iniciais)
+        
+        # O data_editor roda livremente sem bugar a digitação
+        df_editado = st.data_editor(
+            df_base,
+            num_rows="dynamic",
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "colaborador": st.column_config.TextColumn("Colaborador", required=True),
+                "vtr": st.column_config.TextColumn("VTR"),
+                "km_rodados": st.column_config.NumberColumn(
+                    "KM Rodados", min_value=0.0, step=0.5, format="%.1f"
+                ),
+            },
+        )
 
-Pronta para rodar localmente (streamlit run app.py) ou no Streamlit Cloud
-(ver packages.txt para a dependência de sistema do Tesseract-OCR).
+        # O segredo: A atualização do sistema SÓ acontece ao clicar no botão
+        if st.button("✅ Confirmar Lista para Validação de Metas", type="primary", use_container_width=True):
+            st.session_state.linhas_ocr = df_editado.fillna({"colaborador": "", "vtr": "", "km_rodados": 0.0}).to_dict("records")
+            _sincronizar_confirmacao()
+            st.rerun()
 =================================================================================
 """
 
