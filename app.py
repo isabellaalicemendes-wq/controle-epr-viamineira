@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 =================================================================================
- SISTEMA DE CONTROLE DE METAS DE QUILOMETRAGEM - MOTORISTAS  (v3.2)
- EPR VIA MINEIRA - COM CAIXA DE SELEÇÃO DE MOTORISTAS
+ SISTEMA DE CONTROLE DE METAS DE QUILOMETRAGEM - MOTORISTAS  (v3.3)
+ EPR VIA MINEIRA - COM MODO EDIÇÃO E EXCLUSÃO DE HISTÓRICO
 =================================================================================
 """
 
@@ -33,7 +33,6 @@ META_MINIMA_KM = 380.0
 MOTOR_OCR = "pytesseract"
 
 # --- LISTA OFICIAL DE MOTORISTAS (BSO-01 E BSO-02) ---
-# Organizados em ordem alfabética para facilitar a busca na caixinha
 TODOS_MOTORISTAS = [
     "Claudio Roberto",
     "Edson",
@@ -49,7 +48,6 @@ TODOS_MOTORISTAS = [
     "Roberto Carlos",
     "Romulo",
     "Valeria",
-     "Douglas",
     "Verificar Nome" # Opção de segurança caso o CCO mande alguém novo
 ]
 
@@ -404,9 +402,6 @@ def preprocessar_imagem_para_ocr(image: Image.Image) -> Image.Image:
 
 
 def interpretar_texto_completo_real(linhas_texto: list) -> list:
-    """
-    Motor inteligente feito sob medida para ler o print real do CCO da EPR.
-    """
     resultados_filtrados = []
     
     padrao_base = re.compile(r"(BSO-0[12])", re.IGNORECASE)
@@ -438,7 +433,6 @@ def interpretar_texto_completo_real(linhas_texto: list) -> list:
             colaborador = re.sub(r"\bBSO\b|\bT\d{2}\b", " ", colaborador, flags=re.IGNORECASE)
             colaborador = " ".join(colaborador.split()).title()
 
-            # Tenta combinar o nome lido com algum da nossa lista oficial
             nome_encontrado = "Verificar Nome"
             for nome_oficial in TODOS_MOTORISTAS:
                 if nome_oficial.lower() in colaborador.lower():
@@ -796,23 +790,14 @@ def pagina_lancar_plantao():
             
         df_base = pd.DataFrame(linhas_iniciais)
         
-        # A MÁGICA ACONTECE AQUI: A coluna de Colaborador agora é uma Selectbox
         df_editado = st.data_editor(
             df_base,
             num_rows="dynamic",
             use_container_width=True,
             hide_index=True,
             column_config={
-                "base": st.column_config.SelectboxColumn(
-                    "Base (BSO)", 
-                    options=["BSO-01", "BSO-02"], 
-                    required=True
-                ),
-                "colaborador": st.column_config.SelectboxColumn(
-                    "Colaborador", 
-                    options=TODOS_MOTORISTAS, 
-                    required=True
-                ),
+                "base": st.column_config.SelectboxColumn("Base (BSO)", options=["BSO-01", "BSO-02"], required=True),
+                "colaborador": st.column_config.SelectboxColumn("Colaborador", options=TODOS_MOTORISTAS, required=True),
                 "vtr": st.column_config.TextColumn("VTR"),
                 "km_rodados": st.column_config.NumberColumn(
                     "KM Rodados", min_value=0.0, step=0.5, format="%.1f"
@@ -985,6 +970,45 @@ def pagina_historico():
         type="primary",
         use_container_width=True,
     )
+    
+    # -------------------------------------------------------------
+    # NOVA SEÇÃO: MODO ADMINISTRADOR (EDITAR/EXCLUIR HISTÓRICO)
+    # -------------------------------------------------------------
+    st.divider()
+    with st.expander("🛠️ CORRIGIR OU EXCLUIR REGISTROS (Modo Administrador)", expanded=False):
+        st.markdown(
+            "Nesta área você pode corrigir diretamente o banco de dados. "
+            "**Para editar:** dê dois cliques na célula (ex: para alterar a data). "
+            "**Para excluir:** marque a caixinha do lado esquerdo da linha e aperte a tecla `Delete` no teclado."
+        )
+        
+        tab_plantao, tab_oc = st.tabs(["🛣️ Base de Plantões", "⚠️ Base de Ocorrências"])
+        
+        with tab_plantao:
+            df_raw_plantao = load_plantao_df()
+            df_edited_plantao = st.data_editor(
+                df_raw_plantao, 
+                num_rows="dynamic", 
+                use_container_width=True, 
+                key="edit_plantao"
+            )
+            if st.button("💾 Salvar Correções nos Plantões", type="primary"):
+                df_edited_plantao.to_csv(ARQUIVO_PLANTAO, index=False)
+                st.success("Banco de plantões atualizado!")
+                st.rerun()
+                
+        with tab_oc:
+            df_raw_oc = load_ocorrencias_df()
+            df_edited_oc = st.data_editor(
+                df_raw_oc, 
+                num_rows="dynamic", 
+                use_container_width=True, 
+                key="edit_oc"
+            )
+            if st.button("💾 Salvar Correções nas Ocorrências", type="primary"):
+                df_edited_oc.to_csv(ARQUIVO_OCORRENCIAS, index=False)
+                st.success("Banco de ocorrências atualizado!")
+                st.rerun()
 
 
 def main():
