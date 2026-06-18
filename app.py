@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 =================================================================================
- SISTEMA DE CONTROLE DE METAS DE QUILOMETRAGEM - MOTORISTAS  (v3.1)
- EPR VIA MINEIRA - VERSÃO COM FILTRO DE LAYOUT REAL DO CCO
+ SISTEMA DE CONTROLE DE METAS DE QUILOMETRAGEM - MOTORISTAS  (v3.2)
+ EPR VIA MINEIRA - COM CAIXA DE SELEÇÃO DE MOTORISTAS
 =================================================================================
 """
 
@@ -21,7 +21,7 @@ from openpyxl.utils import get_column_letter
 
 
 # =================================================================================
-# 1. CONFIGURAÇÕES GERAIS
+# 1. CONFIGURAÇÕES GERAIS E LISTAS DE MOTORISTAS
 # =================================================================================
 
 ARQUIVO_PLANTAO = "registros_plantao.csv"
@@ -31,6 +31,26 @@ META_IDEAL_KM = 400.0
 META_MINIMA_KM = 380.0    
 
 MOTOR_OCR = "pytesseract"
+
+# --- LISTA OFICIAL DE MOTORISTAS (BSO-01 E BSO-02) ---
+# Organizados em ordem alfabética para facilitar a busca na caixinha
+TODOS_MOTORISTAS = [
+    "Claudio Roberto",
+    "Edson",
+    "Eduardo",
+    "Elias Cruz",
+    "Evander",
+    "Franciele",
+    "Gilsimar",
+    "Hugo Leonardo",
+    "Leo Junior",
+    "Leticia Souza",
+    "Luciano Pedro",
+    "Roberto Carlos",
+    "Romulo",
+    "Valeria",
+    "Verificar Nome" # Opção de segurança caso o CCO mande alguém novo
+]
 
 COLUNAS_PLANTAO = [
     "data_plantao", "turno", "base", "colaborador", "vtr", "km_rodados",
@@ -317,8 +337,8 @@ def salvar_plantao_atual(data_plantao_iso: str, turno: str, lista_motoristas: li
     erros = []
     for idx, motorista in enumerate(lista_motoristas, start=1):
         nome = str(motorista.get("colaborador", "")).strip()
-        if not nome:
-            erros.append(f"Linha {idx}: informe o nome do colaborador.")
+        if not nome or nome == "Verificar Nome":
+            erros.append(f"Linha {idx}: selecione o nome correto do colaborador na lista.")
             continue
         status_code, _, _ = calcular_status(motorista.get("km_rodados"))
         if status_code != "BATIDA" and not motorista.get("ocorrencias"):
@@ -384,10 +404,7 @@ def preprocessar_imagem_para_ocr(image: Image.Image) -> Image.Image:
 
 def interpretar_texto_completo_real(linhas_texto: list) -> list:
     """
-    Motor inteligente feito sob medida para ler o print real do CCO da EPR:
-    - Vasculha o texto em busca dos identificadores 'BSO-01' ou 'BSO-02'
-    - Ignora completamente linhas de BSO-03, BSO-04, BSO-05.
-    - Captura o padrão subsequente de Viatas (ex: T30, T16, T01) e Quilometragem rodada.
+    Motor inteligente feito sob medida para ler o print real do CCO da EPR.
     """
     resultados_filtrados = []
     
@@ -420,12 +437,16 @@ def interpretar_texto_completo_real(linhas_texto: list) -> list:
             colaborador = re.sub(r"\bBSO\b|\bT\d{2}\b", " ", colaborador, flags=re.IGNORECASE)
             colaborador = " ".join(colaborador.split()).title()
 
-            if len(colaborador) < 3:
-                colaborador = "Verificar Nome"
+            # Tenta combinar o nome lido com algum da nossa lista oficial
+            nome_encontrado = "Verificar Nome"
+            for nome_oficial in TODOS_MOTORISTAS:
+                if nome_oficial.lower() in colaborador.lower():
+                    nome_encontrado = nome_oficial
+                    break
 
             resultados_filtrados.append({
                 "base": base_atual,
-                "colaborador": colaborador,
+                "colaborador": nome_encontrado,
                 "vtr": vtr_encontrada,
                 "km_rodados": km_rodados
             })
@@ -567,7 +588,7 @@ def _sincronizar_confirmacao():
     nova_lista = []
     for linha in st.session_state.linhas_ocr:
         nome = str(linha.get("colaborador", "")).strip()
-        if not nome:
+        if not nome or nome == "Verificar Nome":
             continue
         chave = nome.lower()
         nova_lista.append({
@@ -768,20 +789,29 @@ def pagina_lancar_plantao():
         st.markdown("##### Tabela extraída — corrija o que for necessário")
         
         if not st.session_state.linhas_ocr:
-            linhas_iniciais = [{"base": "BSO-01", "colaborador": "", "vtr": "", "km_rodados": 0.0} for _ in range(3)]
+            linhas_iniciais = [{"base": "BSO-01", "colaborador": None, "vtr": "", "km_rodados": 0.0} for _ in range(3)]
         else:
             linhas_iniciais = st.session_state.linhas_ocr
             
         df_base = pd.DataFrame(linhas_iniciais)
         
+        # A MÁGICA ACONTECE AQUI: A coluna de Colaborador agora é uma Selectbox
         df_editado = st.data_editor(
             df_base,
             num_rows="dynamic",
             use_container_width=True,
             hide_index=True,
             column_config={
-                "base": st.column_config.SelectboxColumn("Base (BSO)", options=["BSO-01", "BSO-02"], required=True),
-                "colaborador": st.column_config.TextColumn("Colaborador", required=True),
+                "base": st.column_config.SelectboxColumn(
+                    "Base (BSO)", 
+                    options=["BSO-01", "BSO-02"], 
+                    required=True
+                ),
+                "colaborador": st.column_config.SelectboxColumn(
+                    "Colaborador", 
+                    options=TODOS_MOTORISTAS, 
+                    required=True
+                ),
                 "vtr": st.column_config.TextColumn("VTR"),
                 "km_rodados": st.column_config.NumberColumn(
                     "KM Rodados", min_value=0.0, step=0.5, format="%.1f"
