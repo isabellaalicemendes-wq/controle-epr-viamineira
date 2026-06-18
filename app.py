@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 =================================================================================
- SISTEMA DE CONTROLE DE METAS DE QUILOMETRAGEM - MOTORISTAS  (v3.3)
- EPR VIA MINEIRA - COM MODO EDIÇÃO E EXCLUSÃO DE HISTÓRICO
+ SISTEMA DE CONTROLE DE METAS DE QUILOMETRAGEM - MOTORISTAS  (v3.4)
+ EPR VIA MINEIRA - CORREÇÃO DE TYPEERROR NAS OCORRÊNCIAS E MODO ADMIN
 =================================================================================
 """
 
@@ -544,7 +544,9 @@ def export_consolidated_excel(df_plantao: pd.DataFrame, df_ocorrencias: pd.DataF
                 & (df_ocorrencias["turno"] == turno)
                 & (df_ocorrencias["colaborador"] == linha["colaborador"])
             ]
-            numeros_oc = ", ".join(ocorrencias_motorista["numero_ocorrencia"].tolist()) if not ocorrencias_motorista.empty else "-"
+            # Convertendo de forma segura para string, evitando NaNs que causam erro no JOIN
+            lista_oc_limpa = [str(x) for x in ocorrencias_motorista["numero_ocorrencia"].dropna() if str(x).strip() and str(x).lower() != 'nan']
+            numeros_oc = ", ".join(lista_oc_limpa) if lista_oc_limpa else "-"
 
             valores = [
                 linha.get("base", "-"), 
@@ -877,9 +879,9 @@ def _renderizar_bloco_historico(data_str: str, turno: str, bloco_df: pd.DataFram
             & (df_ocorrencias["colaborador"] == linha["colaborador"])
         ]
         
-        numeros_oc = ", ".join(ocorrencias_motorista["numero_ocorrencia"].tolist())
-        if not numeros_oc:
-            numeros_oc = "-"
+        # Conversão segura para não dar erro no join se vier NaN do banco de dados
+        lista_oc_limpa = [str(x) for x in ocorrencias_motorista["numero_ocorrencia"].dropna() if str(x).strip() and str(x).lower() != 'nan']
+        numeros_oc = ", ".join(lista_oc_limpa) if lista_oc_limpa else "-"
 
         linhas_html += f"""
         <tr>
