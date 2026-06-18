@@ -49,6 +49,7 @@ TODOS_MOTORISTAS = [
     "Roberto Carlos",
     "Romulo",
     "Valeria",
+     "Douglas",
     "Verificar Nome" # Opção de segurança caso o CCO mande alguém novo
 ]
 
